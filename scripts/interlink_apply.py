@@ -109,19 +109,37 @@ def fetch_post(pid):
 # ----------------------------------------------------------------------------
 def cmd_matrix(a):
     ids = [int(x) for x in a.ids.split(",") if x.strip()]
-    posts = {pid: fetch_post(pid) for pid in ids}
+    # --outbound-src: SCHEDULE-TIME interlinking. Treat these (possibly not-yet-
+    # live) posts as link SOURCES and link them OUTBOUND only, to targets in
+    # --ids that are already live. Their bodies will already contain the links
+    # by the time they go live, so no 404. The reciprocal inbound links are
+    # added later, when each source itself goes live (re-run as a normal mesh).
+    outbound_src = [int(x) for x in (a.outbound_src or "").split(",") if x.strip()]
+    all_ids = ids + [s for s in outbound_src if s not in ids]
+    posts = {pid: fetch_post(pid) for pid in all_ids}
     # RULE: only link to pages that are already PUBLISHED. Scheduled / draft
     # targets would 404 — skip them now, re-run after they go live.
     live = [pid for pid in ids if posts[pid]["status"] == "publish"]
-    future = [pid for pid in ids if posts[pid]["status"] != "publish"]
+    future = [pid for pid in all_ids if posts[pid]["status"] != "publish"]
     hub = a.hub if (a.hub and a.hub in ids) else None
 
     # Required directed links (topology):
+    #   --outbound-src: each source -> every live target (outbound only)
     #   --mesh        : every live post links to every other live post
     #   --hub <id>    : hub <-> each spoke (bidirectional)
     #   neither       : default to full mesh (fine for small clusters)
     needed = set()
-    if a.mesh:
+    if outbound_src:
+        for s in outbound_src:
+            for t in live:
+                if s != t:
+                    needed.add((s, t))
+        if a.mesh:  # optionally also mesh the live ones (usually already linked)
+            for s in live:
+                for t in live:
+                    if s != t:
+                        needed.add((s, t))
+    elif a.mesh:
         for s in live:
             for t in live:
                 if s != t:
@@ -136,6 +154,9 @@ def cmd_matrix(a):
             for t in live:
                 if s != t:
                     needed.add((s, t))
+
+    # Source set = live posts + the (possibly non-live) outbound sources.
+    sources = live + [s for s in outbound_src if s not in live]
 
     # A link is MISSING if the target is live AND the source body does not
     # already contain the target slug (idempotency: existing link => skip).
@@ -156,7 +177,7 @@ def cmd_matrix(a):
     cta = []
     if a.cta_path:
         cta_url = BASE.rstrip("/") + "/" + a.cta_path.strip("/") + "/"
-        for pid in live:
+        for pid in sources:
             if a.cta_path.strip("/") not in posts[pid]["raw"]:
                 cta.append({
                     "source": pid,
@@ -172,7 +193,7 @@ def cmd_matrix(a):
     dumpdir = a.dumpdir
     if dumpdir:
         os.makedirs(dumpdir, exist_ok=True)
-        for pid in live:
+        for pid in sources:
             with open(os.path.join(dumpdir, f"{pid}.md"), "w") as fh:
                 fh.write(posts[pid]["raw"])
 
@@ -305,6 +326,9 @@ def main():
     m.add_argument("--ids", required=True, help="Comma-separated post IDs in the cluster.")
     m.add_argument("--hub", type=int, default=None, help="Hub post ID for hub-spoke topology.")
     m.add_argument("--mesh", action="store_true", help="Full mesh: every live post links every other.")
+    m.add_argument("--outbound-src", dest="outbound_src", default=None,
+                   help="Schedule-time mode: treat these (maybe non-live) posts as sources, "
+                        "linking them OUTBOUND only to already-live targets in --ids.")
     m.add_argument("--cta-path", default=None, dest="cta_path",
                    help="Shared conversion page path to ensure coverage, e.g. contact.")
     m.add_argument("--cta-title", default=None, dest="cta_title", help="Display title for the CTA target.")

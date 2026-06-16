@@ -76,10 +76,17 @@ CMS_USER=<user> CMS_APP_PW=<app_pw> python3 scripts/interlink_apply.py verify \
 - **審稿模式（預設）**：① ② 做完，把 plan 給使用者看再 apply。新叢集、跨叢集、拓樸有疑慮時用。
 - **自動模式**：當 (a) 目標全 publish、(b) plan 每條 marker 唯一且錨句過 FACTS、(c) 冪等 → 直接 apply + verify。適合「發完一篇新文把它織進既有叢集」「批次排程上線後的全叢集 pass」這類已驗證安全的重跑。
 
-## 觸發時機
-1. **每發佈一篇新文** → 跑它所屬叢集一輪（content-pipeline 第⑥步呼叫本 skill）。
-2. **批次排程上線後**（如某天全叢集上線）→ 排 routine 自動跑全叢集 pass。
-3. 手動盤點某叢集補連。
+## 觸發時機（預設＝每篇「排程即設內鏈」，不要拖到事後批次）
+**鐵則：一篇文一旦決定排程日期，就立刻處理它的內鏈——但因「只連已上線」避免 404，分兩個時點：**
+
+1. **排程當下（決定上架日時）→「單篇 outbound」**：把這篇 → 同叢集**已上線**的相關文。
+   - 用 `matrix --outbound-src <本篇> --ids <已上線姊妹...> [--cta-path ...]`（本篇可未上線；只連已上線目標，寫進本篇內文，上線時不 404）→ `interlink.js` → `apply`。
+   - 連往「比它晚上線」的姊妹文先不連 → 交給下一點。
+2. **這篇上線當下（publish 觸發）→「單篇 full mesh」**：本篇 ↔ 當時所有已上線姊妹（補 inbound：姊妹文 → 本篇）。`matrix --ids <本篇,已上線姊妹> --mesh` → `apply`。冪等。
+3. **批次保險 pass**（選配）：整叢集都上線後再 `--mesh` 補遺漏（前兩步做對應為 0）。
+4. 手動盤點某叢集補連。
+
+> 一句話：**排程時把「本篇 → 已上線」連好；本篇上線時把「已上線 ↔ 本篇」補齊。** content-pipeline 第⑥步與 content-schedule 排程動作都應呼叫本 skill 做「單篇」這件事，不要累積到事後一次補一大票。
 
 ## 換 CMS
 參考實作打 WordPress REST API（`/wp-json/wp/v2/...`、`context=edit` 取 content.raw、Gutenberg 區塊 end marker 決定插入點）。要換別的 CMS：改 `interlink_apply.py` 的 `api` / `get_public` / `fetch_post` / `cmd_apply` 的 PUT，以及 `_insert` 的 `BLOCK_ENDS`；`interlink.js` 的 `insertion_html` 模板換成目標 CMS 的區塊格式。其餘邏輯（上線判定、互鏈矩陣、缺連結、冪等、錨點工作流）與 CMS 無關。
