@@ -1,5 +1,7 @@
 # internal-linking
 
+> 📖 **手把手 fork + 使用教學（GitHub Pages）**：https://wolfganghuang0083.github.io/content-ops-toolkit/
+
 Weave the **already-published** articles of a topic cluster into a topic web using on-topic, keyword-bearing internal links. Brand-agnostic, drop-in for any site/client.
 
 This is the implementation of **step ⑥ of a content pipeline: "go back and interlink the cluster."** Once new articles are live, you don't leave them as orphans — you stitch them into the cluster so search engines (and readers) see a coherent topic web.
